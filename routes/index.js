@@ -114,7 +114,7 @@ router.post('/post-herramienta', async (req, res) => {
   const { nombre, marca, estado, cantidad_total, medidas, observacion, obra} = req.body; // datos de la herramienta
   const mainStorage_ID = process.env.MAIN_STORAGE_ID
 
-  // Verificamos que todos los campos sean proporcionados
+  // Verificamos que todos los campos sean requeridos estén
   if (!nombre || !marca || !estado || cantidad_total === undefined) {
     return res.status(400).json({ error: 'Todos los campos son obligatorios' });
   }
@@ -134,9 +134,7 @@ router.post('/post-herramienta', async (req, res) => {
       .select()
       .single(); // para obtener una sola fila insertada
       
-    if (error) {
-      throw error; // lanzamos un error si algo sale mal
-    }
+    if (error) throw error; // lanzamos un error si algo sale mal
     
     // Insertamos la herramienta en su respectiva Ubicacion
     const now = new Date();
@@ -144,7 +142,7 @@ router.post('/post-herramienta', async (req, res) => {
     const fecha = now.toISOString().split('T')[0];
     const hora = now.toISOString().split('T')[1].split('.')[0];
     
-    await supabase
+    const {data:relation, error:erroRelation } = await supabase
       .from('herramientas_en_obras')
       .insert([
         {
@@ -155,6 +153,9 @@ router.post('/post-herramienta', async (req, res) => {
           hora
         }
       ]);
+    
+      if (erroRelation) throw erroRelation;
+
     // Respondemos con el data creado
     res.status(201).json({ message: 'Herramienta agregada con éxito', data });
   } catch (error) {
@@ -484,37 +485,40 @@ router.delete('/delete-work', async(req,res)=>{
   try {
     // Obtenemos la lista de herramientas que hay en la obra a eliminar y despues en el almacenamiento principal.
     const toolsInWorkToDelete = await getToolsInWork(id);
-    const toolsInMainStorage = await getToolsInWork(mainStorage_ID)
+    /* Comprobamos si la obra tenía herramientas dentro */
+    if (toolsInWorkToDelete.length) {
+      const toolsInMainStorage = await getToolsInWork(mainStorage_ID)
 
     // En esta lista vamos metiendo las herramientas
     const listToolsFormated = []
 
-    // Sumamos la cantidad de las herramientas que coinciden y las vamos guardando en el array
-    // No obstante las herramientas que no estan en el galpon se almacenan igual con la cantidad que
-    // había en la obra.
+    /*Sumamos la cantidad de las herramientas que coinciden y las vamos guardando en el array
+    No obstante las herramientas que no estan en el galpon se almacenan igual con la cantidad que había en la obra. */
     toolsInWorkToDelete.forEach(tool => {
       const toolSaved = toolsInMainStorage.find(toolStorage => tool.herramienta_id == toolStorage.herramienta_id)
       
       if(toolSaved) {
         return listToolsFormated.push({herramienta_id: tool.herramienta_id, cantidad: Number(tool.cantidad) + Number(toolSaved.cantidad), obra_actual_id: mainStorage_ID});
       }
-      listToolsFormated.push({herramienta_id: tool.herramienta_id, cantidad: Number(tool.cantidad), obra_actual_id: mainStorage_ID})
-    });
-    
-    // Ahora hacemos un upsert a supabase para reemplazar e insertar los datos (las herramientas)
-    const {error:errUpsert, data} = await supabase
+        listToolsFormated.push({herramienta_id: tool.herramienta_id, cantidad: Number(tool.cantidad), obra_actual_id: mainStorage_ID})
+      });
+
+      // Ahora hacemos un upsert a supabase para reemplazar e insertar los datos (las herramientas)
+      const {error:errUpsert, data} = await supabase
       .from("herramientas_en_obras")
       .upsert(listToolsFormated, {onConflict: ["herramienta_id", "obra_actual_id"]})
       .select()
 
-      const {error: errDeletRegisters} = await deleteRegistersForWork(id)
-    
+      if (errUpsert) throw errUpsert
 
+    }
+    const {error: errDeletRegisters} = await deleteRegistersForWork(id)
+    
     const {error: errDeleteWork} = await deleteWork(id)
 
-    if(errUpsert || errDeletRegisters || errDeleteWork) throw {errDeletRegisters,errDeleteWork,errUpsert};
+    if(errDeletRegisters || errDeleteWork) throw {errDeletRegisters,errDeleteWork,errUpsert};
 
-      return res.status(200).json({msg: "Obra eliminada", data})
+      return res.status(200).json({msg: "Obra eliminada"})
 
   } catch (error) {
     console.log(error);

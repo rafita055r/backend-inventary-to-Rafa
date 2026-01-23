@@ -2,11 +2,14 @@ const supabase = require('../supabaseClient.js')
 
 async function deleteRegistersForWork(work_id) { 
     try {
-        const {error} = await supabase
+        const {error:errCurrentWork} = await supabase
             .from("herramientas_en_obras")
             .delete()
             .eq('obra_actual_id', work_id)
 
+        if(errCurrentWork) throw errCurrentWork
+
+        const {error} = await supabase.from('herramientas_en_obras').update({obra_anterior_id: null}).eq('obra_anterior_id', work_id)
         if(error) throw error
 
         return {error: undefined}

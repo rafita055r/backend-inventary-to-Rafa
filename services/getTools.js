@@ -15,6 +15,8 @@ async function getTools(){
                     )
                 )
             `);
+
+        if (error) throw error
         
         const toolsListFormated = data.map(tool=>{
             return {
