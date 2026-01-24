@@ -1,230 +1,271 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const supabase = require('../supabaseClient.js');
+const supabase = require("../supabaseClient.js");
 const getToolsInWork = require("../services/getToolsInWork.js");
-const {deleteRegistersForWork, deleteRegistersForTool_ID} = require('../services/deleteRegisters.js');
-const deleteWork = require('../services/deleteWork.js');
-const {getTools, getToolByID} = require('../services/getTools.js');
-const { deleteTool } = require('../services/deleteTool.js');
-const { upsertToolInMainStorage, substractQuantityToolOfRegister } = require('../services/updateRegister.js');
+const {
+  deleteRegistersForWork,
+  deleteRegistersForTool_ID,
+} = require("../services/deleteRegisters.js");
+const deleteWork = require("../services/deleteWork.js");
+const { getTools, getToolByID } = require("../services/getTools.js");
+const { deleteTool } = require("../services/deleteTool.js");
+const {
+  upsertToolInMainStorage,
+  substractQuantityToolOfRegister,
+} = require("../services/updateRegister.js");
+const { getWorks } = require("../services/getWorks.js");
 
 // -----------RUTAS DE HERRAMIENTAS--------------------------
 // Ruta para devolver las herramientas
-router.get('/herramientas', async (req, res) => {
+router.get("/herramientas", async (req, res) => {
   try {
-    const {data: tools, error} = await getTools()
-   
+    const { data: tools, error } = await getTools();
+
     if (error) throw error;
-    
+
     res.json(tools);
   } catch (error) {
     console.log(error);
-    return res.status(500).json(error)
+    return res.status(500).json(error);
   }
 });
 
 // Ruta para eliminar una herramienta
 router.delete("/tool-delete/:id", async (req, res) => {
-  const {id: tool_id} = req.params
-  
+  const { id: tool_id } = req.params;
+
   try {
-    const {error: errDelRegisters} = await deleteRegistersForTool_ID(tool_id)
-    if(errDelRegisters) throw errDelRegisters
+    const { error: errDelRegisters } = await deleteRegistersForTool_ID(tool_id);
+    if (errDelRegisters) throw errDelRegisters;
 
-    const {error: errDelTool} = await deleteTool(tool_id)
-    if(errDelTool) throw errDelTool
+    const { error: errDelTool } = await deleteTool(tool_id);
+    if (errDelTool) throw errDelTool;
 
-    return res.status(200).json({data: "herramienta eliminada"})
+    return res.status(200).json({ data: "herramienta eliminada" });
   } catch (error) {
     console.log(error);
-    return res.status(500).json(error)
+    return res.status(500).json(error);
   }
-})
+});
 
 // Ruta para editar una herramienta
 router.put("/edit-tool/:id", async (req, res) => {
-  const {id} = req.params
-  const toolToEdit = req.body
-  const {operation, quantityValue} = toolToEdit.quantityToModify
-  const changePermited = ["nombre", "marca", "estado", "medidas", "observacion"]
-  const operationPermited = ["substract", "addition"]
+  const { id } = req.params;
+  const toolToEdit = req.body;
+  const { operation, quantityValue } = toolToEdit.quantityToModify;
+  const changePermited = [
+    "nombre",
+    "marca",
+    "estado",
+    "medidas",
+    "observacion",
+  ];
+  const operationPermited = ["substract", "addition"];
 
-  
   try {
     // buscamos la herramienta de la DB
-    const {error, data: tool} = await getToolByID(id);
-    if(error) throw error
+    const { error, data: tool } = await getToolByID(id);
+    if (error) throw error;
 
     // comprobamos que la operacion de modificacion de cantidad sea correcta
-    if(operation !== undefined && !operationPermited.includes(operation)) throw new Error("La operacion que se quiere hacer no esta disponible");
-    
-    // sera la herramienta con los nuevos cambios
-    let toolEdited = {}
+    if (operation !== undefined && !operationPermited.includes(operation))
+      throw new Error("La operacion que se quiere hacer no esta disponible");
 
+    // sera la herramienta con los nuevos cambios
+    let toolEdited = {};
 
     // Modificamos la cantidad de la herramienta si eso se quiere y según qué operación se quiera hacer
-    if(typeof quantityValue === 'number' && quantityValue > 0){
-
-      if(operation === operationPermited[0]){
-  
+    if (typeof quantityValue === "number" && quantityValue > 0) {
+      if (operation === operationPermited[0]) {
         // nos aseguramos que si la herramienta esta en mas de una obra no se pueda restar la cantidad
-        if(tool.ubications.length > 1) return res.status(400).json({error: "No puedes restar cantidad si la herramienta se encuentra en más de una obra"});
+        if (tool.ubications.length > 1)
+          return res
+            .status(400)
+            .json({
+              error:
+                "No puedes restar cantidad si la herramienta se encuentra en más de una obra",
+            });
 
-        toolEdited.cantidad_total = +(tool.cantidad_total - quantityValue)
-        
-        const {error} = await substractQuantityToolOfRegister(quantityValue, id, tool.ubications[0].register_id)
+        toolEdited.cantidad_total = +(tool.cantidad_total - quantityValue);
 
-        if(error) throw error
-      } 
-      else if(operation === operationPermited[1]){
-        
-        const {error} = await upsertToolInMainStorage(quantityValue, id)
-        toolEdited.cantidad_total = +(tool.cantidad_total + quantityValue)
-        if(error) throw error
-        
+        const { error } = await substractQuantityToolOfRegister(
+          quantityValue,
+          id,
+          tool.ubications[0].register_id
+        );
+
+        if (error) throw error;
+      } else if (operation === operationPermited[1]) {
+        const { error } = await upsertToolInMainStorage(quantityValue, id);
+        toolEdited.cantidad_total = +(tool.cantidad_total + quantityValue);
+        if (error) throw error;
       }
     }
 
     // reemplazamos los nuevos valores
-    for(const nameProperty of changePermited){
-      if(toolToEdit[nameProperty] !== undefined){
-        toolEdited[nameProperty] = toolToEdit[nameProperty]
+    for (const nameProperty of changePermited) {
+      if (toolToEdit[nameProperty] !== undefined) {
+        toolEdited[nameProperty] = toolToEdit[nameProperty];
       }
     }
 
-    const {error: errToolEdited, data: toolModificated} = await supabase
+    const { error: errToolEdited, data: toolModificated } = await supabase
       .from("herramientas")
       .update(toolEdited)
       .eq("id", id)
       .select()
-      .single()
+      .single();
 
-    if(errToolEdited) throw errToolEdited
+    if (errToolEdited) throw errToolEdited;
 
-    return res.status(200).json(toolModificated)
-
+    return res.status(200).json(toolModificated);
   } catch (error) {
     console.log(error);
-    return res.status(500).json({error: error.message})
+    return res.status(500).json({ error: error.message });
   }
-})
+});
 
 // Ruta para agregar una herramienta
-router.post('/post-herramienta', async (req, res) => {
-  const { nombre, marca, estado, cantidad_total, medidas, observacion, obra} = req.body; // datos de la herramienta
-  const mainStorage_ID = process.env.MAIN_STORAGE_ID
+router.post("/post-herramienta", async (req, res) => {
+  const { nombre, marca, estado, cantidad_total, medidas, observacion, obra } =
+    req.body; // datos de la herramienta
+  const mainStorage_ID = process.env.MAIN_STORAGE_ID;
 
   // Verificamos que todos los campos sean requeridos estén
   if (!nombre || !marca || !estado || cantidad_total === undefined) {
-    return res.status(400).json({ error: 'Todos los campos son obligatorios' });
+    return res.status(400).json({ error: "Todos los campos son obligatorios" });
   }
 
   // Verificamos que el estado sea válido
-  if (!['bien', 'mal', 'mantenimiento'].includes(estado)) {
-    return res.status(400).json({ error: 'Estado inválido. Debe ser "bien", "mal" o "mantenimiento"' });
+  if (!["bien", "mal", "mantenimiento"].includes(estado)) {
+    return res
+      .status(400)
+      .json({
+        error: 'Estado inválido. Debe ser "bien", "mal" o "mantenimiento"',
+      });
   }
 
   try {
     // Insertamos la nueva herramienta en la base de datos
     const { data, error } = await supabase
-      .from('herramientas')
-      .insert([
-        { nombre, marca, estado, cantidad_total, medidas, observacion }
-      ])
+      .from("herramientas")
+      .insert([{ nombre, marca, estado, cantidad_total, medidas, observacion }])
       .select()
       .single(); // para obtener una sola fila insertada
-      
+
     if (error) throw error; // lanzamos un error si algo sale mal
-    
+
     // Insertamos la herramienta en su respectiva Ubicacion
     const now = new Date();
     now.setHours(now.getHours() - 3);
-    const fecha = now.toISOString().split('T')[0];
-    const hora = now.toISOString().split('T')[1].split('.')[0];
-    
-    const {data:relation, error:erroRelation } = await supabase
-      .from('herramientas_en_obras')
+    const fecha = now.toISOString().split("T")[0];
+    const hora = now.toISOString().split("T")[1].split(".")[0];
+
+    const { data: relation, error: erroRelation } = await supabase
+      .from("herramientas_en_obras")
       .insert([
         {
           herramienta_id: data.id,
           obra_actual_id: obra || mainStorage_ID,
           cantidad: cantidad_total,
           fecha,
-          hora
-        }
+          hora,
+        },
       ]);
-    
-      if (erroRelation) throw erroRelation;
+
+    if (erroRelation) throw erroRelation;
 
     // Respondemos con el data creado
-    res.status(201).json({ message: 'Herramienta agregada con éxito', data });
+    res.status(201).json({ message: "Herramienta agregada con éxito", data });
   } catch (error) {
     console.log(error);
-    res.status(500).json({ error: 'Hubo un problema al agregar la herramienta' });
+    res
+      .status(500)
+      .json({ error: "Hubo un problema al agregar la herramienta" });
   }
 });
-
 
 // -----------------RUTAS DE OBRAS---------------------------------
-router.get('/obras', async (req, res) => {
-
+router.get("/obras", async (req, res) => {
+  const { nameWork, nameTool } = req.query;
+  
   try {
-    const { data: listWorks, error: errWork } = await supabase
-      .from('obras')
-      .select(`
-    *,
-    herramientas_en_obras!herramientas_en_obras_obra_actual_id_fkey (
-      id,
-      cantidad,
-      herramienta_id,
-      herramientas (
-        id,
-        nombre,
-        marca,
-        estado,
-        cantidad_total,
-        medidas,
-        observacion
-      )
-    )
-  `);
+    const works = await getWorks();
+
+    if(!nameWork && !nameTool) return res.json(works);
+
+    if(nameWork && nameTool){
+      const findedWWorks = works.filter(work=>String(work.nombre).trim().toLowerCase().includes(String(nameWork).trim().toLocaleLowerCase()));
       
-      // Ordenamos las props con sus respectivos nombres 
-      // para las herramientas dentro de cada obra
-      const works = listWorks.map(work=>{
-
-        const toolsInWork = work.herramientas_en_obras.map(tool=>{
+      const findedToolsOnWorks = findedWWorks.map((work)=>{
+        let isFind = false
+        const listTool = work.herramientas_enObra
+        const listToolFilter = []
+        
+        for(let i=0; i < listTool.length; i++){
+          
+          isFind = listTool[i].nombre.trim().toLowerCase().includes(nameTool.toLowerCase())
+  
+          if(isFind) {
+            listToolFilter.push(listTool[i])
+          } 
+        };
+  
+        if(listToolFilter.length > 0){
           return {
-            cantidad: tool.cantidad,
-            herramienta_id: tool.herramientas.id,
-            nombre: tool.herramientas.nombre
+            ...work,
+            herramientas_enObra: listToolFilter
           }
-        })
-
-        return {
-          id: work.id,
-          nombre: work.nombre,
-          direccion: work.direccion,
-          herramientas_enObra: toolsInWork
+          
         }
       })
+      const data = findedToolsOnWorks.filter(work => work !== undefined)
       
-    if (errWork) throw errWork
-    return res.json(works)
+      return res.status(200).json(data)
+    } else if(nameWork){
+      const findedWWorks = works.filter(work=>String(work.nombre).trim().toLowerCase().includes(String(nameWork).trim().toLocaleLowerCase()));
+      
+      return res.status(200).json(findedWWorks)
+    }else if(nameTool){
+      const findedToolsOnWorks = works.map((work)=>{
+        let isFind = false
+        const listTool = work.herramientas_enObra
+        const listToolFilter = []
+        
+        for(let i=0; i < listTool.length; i++){
+          
+          isFind = listTool[i].nombre.trim().toLowerCase().includes(nameTool.toLowerCase())
+  
+          if(isFind) {
+            listToolFilter.push(listTool[i])
+          } 
+        };
+  
+        if(listToolFilter.length > 0){
+          return {
+            ...work,
+            herramientas_enObra: listToolFilter
+          }
+          
+        }
+      })
+      const data = findedToolsOnWorks.filter(work => work !== undefined)
+      
+      return res.status(200).json(data)
+    }
+
+
     
   } catch (error) {
     console.log(error);
-    
-    return res.status(500).json(error)
+
+    return res.status(500).json(error);
   }
 });
 
-router.get('/history', async (req, res) => {
-
-  
+router.get("/history", async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('herramientas_en_obras')
+    const { data, error } = await supabase.from("herramientas_en_obras")
       .select(`*,
         herramientas(
           id,
@@ -245,343 +286,375 @@ router.get('/history', async (req, res) => {
 
     if (error) throw error;
 
-    const historyList = data.map(register=>{
+    const historyList = data.map((register) => {
       return {
         id_register: register.id,
-        tool:{
-          ...register.herramientas
+        tool: {
+          ...register.herramientas,
         },
-        previusWork:{
-          ...register.obra_anterior_id
+        previusWork: {
+          ...register.obra_anterior_id,
         },
-        currentrWork:{
-          ...register.obra_actual_id
+        currentrWork: {
+          ...register.obra_actual_id,
         },
         cantidad: register.cantidad,
         fecha: register.fecha,
-        hora: register.hora
-      }
-    })
-    
-    const historySortToDate = historyList.sort((A, B) => new Date(`${A.fecha} ${A.hora}`) - new Date(`${B.fecha} ${B.hora}`))
+        hora: register.hora,
+      };
+    });
+
+    const historySortToDate = historyList.sort(
+      (A, B) =>
+        new Date(`${A.fecha} ${A.hora}`) - new Date(`${B.fecha} ${B.hora}`)
+    );
 
     res.status(200).json(historySortToDate);
-
-    } catch (error) {
-      if (error) return res.status(500).json({ error });
+  } catch (error) {
+    if (error) return res.status(500).json({ error });
   }
-
 });
 
 // Ruta para crear una obra
-router.post('/post-obra', async (req, res) => {
+router.post("/post-obra", async (req, res) => {
   const { nombre, direccion } = req.body; // recibimos los datos de la obra
-  
+
   // Verificamos que el nombre esté presente
   if (!nombre) {
-    return res.status(400).json({ error: 'El nombre de la obra es obligatorio' });
+    return res
+      .status(400)
+      .json({ error: "El nombre de la obra es obligatorio" });
   }
 
   try {
     // Insertamos la nueva obra en la base de datos
     const { data, error } = await supabase
-      .from('obras')
+      .from("obras")
       .insert([
-        { nombre, direccion } // los valores a insertar
+        { nombre, direccion }, // los valores a insertar
       ])
       .select()
       .single();
-    
+
     if (error) {
       throw error; // lanzamos un error si algo sale mal
     }
-    
+
     // Respondemos con el data creado
-    res.status(201).json({ message: 'Obra creada con éxito', data: {...data, herramientas_enObra:[]} });
+    res
+      .status(201)
+      .json({
+        message: "Obra creada con éxito",
+        data: { ...data, herramientas_enObra: [] },
+      });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Hubo un problema al crear la obra' });
+    res.status(500).json({ error: "Hubo un problema al crear la obra" });
   }
 });
 
 // Ruta para agregar un movimiento
-router.post('/herramientas-en-obra', async (req, res) => {
+router.post("/herramientas-en-obra", async (req, res) => {
   const { herramienta_id, obra_id, id_desdeObra, cantidad } = req.body;
   const now = new Date();
   now.setHours(now.getHours() - 3);
 
-  const fecha = now.toISOString().split('T')[0];
-  const hora = now.toISOString().split('T')[1].split('.')[0];
+  const fecha = now.toISOString().split("T")[0];
+  const hora = now.toISOString().split("T")[1].split(".")[0];
 
   if (!herramienta_id || !obra_id || !cantidad) {
-    return res.status(400).json({ error: 'Faltan datos: herramienta_id, obra_id, o cantidad' });
+    return res
+      .status(400)
+      .json({ error: "Faltan datos: herramienta_id, obra_id, o cantidad" });
   }
 
-  if(id_desdeObra === obra_id){
-    return res.status(400).json({error: 'La herramienta ya está en esta obra'})
+  if (id_desdeObra === obra_id) {
+    return res
+      .status(400)
+      .json({ error: "La herramienta ya está en esta obra" });
   }
-  
-  
+
   try {
     const { data: registro, error } = await supabase
-      .from('herramientas_en_obras')
-      .select('*')
-      .eq('herramienta_id', herramienta_id)
-      .eq('obra_actual_id', id_desdeObra)
+      .from("herramientas_en_obras")
+      .select("*")
+      .eq("herramienta_id", herramienta_id)
+      .eq("obra_actual_id", id_desdeObra)
       .single(); // esperamos solo una herramienta
-    
+
     try {
-      if(!registro){      
+      if (!registro) {
         const { data, error } = await supabase
-        .from('herramientas_en_obras')
-        .insert([
-          {
-            herramienta_id,
-            obra_actual_id: obra_id,
-            cantidad,
-            fecha,
-            hora,
-          }
-        ])
-        .single();
-  
+          .from("herramientas_en_obras")
+          .insert([
+            {
+              herramienta_id,
+              obra_actual_id: obra_id,
+              cantidad,
+              fecha,
+              hora,
+            },
+          ])
+          .single();
+
         if (error) {
           throw error;
         }
-  
-        return res.status(201).json({ message: 'Relación creada con éxito', data });
-  
-      }else{
+
+        return res
+          .status(201)
+          .json({ message: "Relación creada con éxito", data });
+      } else {
         const { data, error } = await supabase
-        .from('herramientas_en_obras')
-        .insert([
-          {
-            herramienta_id,
-            obra_actual_id: obra_id,
-            obra_anterior_id: registro.obra_actual_id,
-            cantidad,
-            fecha,
-            hora,
-          }
-        ])
-        .single();
-  
+          .from("herramientas_en_obras")
+          .insert([
+            {
+              herramienta_id,
+              obra_actual_id: obra_id,
+              obra_anterior_id: registro.obra_actual_id,
+              cantidad,
+              fecha,
+              hora,
+            },
+          ])
+          .single();
+
         if (error) {
           throw error;
         }
-  
-        return res.status(201).json({ message: 'Relación creada con éxito', data });
+
+        return res
+          .status(201)
+          .json({ message: "Relación creada con éxito", data });
       }
-  
-  
     } catch (error) {
       console.error(error);
-      res.status(500).json({ error: 'Hubo un problema al agregar la relación' });
+      res
+        .status(500)
+        .json({ error: "Hubo un problema al agregar la relación" });
     }
   } catch (error) {
     console.error(error);
-      res.status(500).json({ error: 'Hubo un problema al agregar la relación' });
+    res.status(500).json({ error: "Hubo un problema al agregar la relación" });
   }
-  
 });
 
-
 // Ruta para mover una herramienta
-router.post('/move-tool', async (req, res) => {
-  const { herramienta_id, obra_origen_id, obra_destino_id, cantidad } = req.body;
+router.post("/move-tool", async (req, res) => {
+  const { herramienta_id, obra_origen_id, obra_destino_id, cantidad } =
+    req.body;
 
-  const {data: obraDestino} = await supabase
-    .from('obras')
-    .select('id')
-    .eq('id', obra_destino_id)
-    .single()
-    
-    if(!obraDestino){
-      return res.status(400).json({ error: 'La obra no existe' });
-    }
+  const { data: obraDestino } = await supabase
+    .from("obras")
+    .select("id")
+    .eq("id", obra_destino_id)
+    .single();
+
+  if (!obraDestino) {
+    return res.status(400).json({ error: "La obra no existe" });
+  }
 
   // Obtener cantidad actual en obra origen
   const { data: origenData, error: errorOrigen } = await supabase
-    .from('herramientas_en_obras')
-    .select('*')
-    .eq('herramienta_id', herramienta_id)
-    .eq('obra_actual_id', obra_origen_id)
+    .from("herramientas_en_obras")
+    .select("*")
+    .eq("herramienta_id", herramienta_id)
+    .eq("obra_actual_id", obra_origen_id)
     .single();
 
-    
-    if (errorOrigen || !origenData) {
-      return res.status(400).json({ error: 'Herramienta no encontrada en la obra origen' });
-    }
-    
-    const cantidadOrigen = Number(origenData.cantidad);
-    
-    if (Number(cantidad) > cantidadOrigen) {
-      return res.status(400).json({ error: 'Cantidad a mover mayor que la disponible' });
-    }
-    
-    // Actualizar/eliminar origen
-    if (Number(cantidad) === cantidadOrigen) {
-      
+  if (errorOrigen || !origenData) {
+    return res
+      .status(400)
+      .json({ error: "Herramienta no encontrada en la obra origen" });
+  }
+
+  const cantidadOrigen = Number(origenData.cantidad);
+
+  if (Number(cantidad) > cantidadOrigen) {
+    return res
+      .status(400)
+      .json({ error: "Cantidad a mover mayor que la disponible" });
+  }
+
+  // Actualizar/eliminar origen
+  if (Number(cantidad) === cantidadOrigen) {
     await supabase
-      .from('herramientas_en_obras')
+      .from("herramientas_en_obras")
       .delete()
-      .eq('id', origenData.id)
-    
+      .eq("id", origenData.id);
   } else {
     await supabase
-      .from('herramientas_en_obras')
+      .from("herramientas_en_obras")
       .update({ cantidad: cantidadOrigen - Number(cantidad) })
-      .eq('herramienta_id', herramienta_id)
-      .eq('obra_actual_id', obra_origen_id);
+      .eq("herramienta_id", herramienta_id)
+      .eq("obra_actual_id", obra_origen_id);
   }
 
   // Ver si ya existe la herramienta en la obra destino
   const { data: destinoData } = await supabase
-    .from('herramientas_en_obras')
-    .select('cantidad')
-    .eq('herramienta_id', herramienta_id)
-    .eq('obra_actual_id', obra_destino_id)
+    .from("herramientas_en_obras")
+    .select("cantidad")
+    .eq("herramienta_id", herramienta_id)
+    .eq("obra_actual_id", obra_destino_id)
     .single();
 
   if (destinoData) {
     // Ya existe, actualizar cantidad
     await supabase
-      .from('herramientas_en_obras')
-      .update({ cantidad: Number(destinoData.cantidad) + Number(cantidad)})
-      .eq('herramienta_id', herramienta_id)
-      .eq('obra_actual_id', obra_destino_id);
+      .from("herramientas_en_obras")
+      .update({ cantidad: Number(destinoData.cantidad) + Number(cantidad) })
+      .eq("herramienta_id", herramienta_id)
+      .eq("obra_actual_id", obra_destino_id);
   } else {
     // No existe, insertar nueva fila
     const now = new Date();
     now.setHours(now.getHours() - 3);
-    const fecha = now.toISOString().split('T')[0];
-    const hora = now.toISOString().split('T')[1].split('.')[0];
+    const fecha = now.toISOString().split("T")[0];
+    const hora = now.toISOString().split("T")[1].split(".")[0];
 
-    await supabase
-      .from('herramientas_en_obras')
-      .insert([
-        {
-          herramienta_id,
-          obra_actual_id: obra_destino_id,
-          obra_anterior_id: obra_origen_id,
-          cantidad,
-          fecha,
-          hora
-        }
-      ]);
+    await supabase.from("herramientas_en_obras").insert([
+      {
+        herramienta_id,
+        obra_actual_id: obra_destino_id,
+        obra_anterior_id: obra_origen_id,
+        cantidad,
+        fecha,
+        hora,
+      },
+    ]);
   }
 
   return res.status(200).json({ success: true });
 });
 
-router.delete('/delete-work', async(req,res)=>{
-  const {id} = req.body;
-  const mainStorage_ID = process.env.MAIN_STORAGE_ID
-  
-  if(mainStorage_ID === id) return res.status(400).json({msg: "Esta obra no se puede eliminar porque es el almacenamiento principal"});
+router.delete("/delete-work", async (req, res) => {
+  const { id } = req.body;
+  const mainStorage_ID = process.env.MAIN_STORAGE_ID;
 
-  if(!id) return res.status(400).json({error: "Falta el id para buscar la obra"})
+  if (mainStorage_ID === id)
+    return res
+      .status(400)
+      .json({
+        msg: "Esta obra no se puede eliminar porque es el almacenamiento principal",
+      });
+
+  if (!id)
+    return res.status(400).json({ error: "Falta el id para buscar la obra" });
 
   try {
     // Obtenemos la lista de herramientas que hay en la obra a eliminar y despues en el almacenamiento principal.
     const toolsInWorkToDelete = await getToolsInWork(id);
     /* Comprobamos si la obra tenía herramientas dentro */
     if (toolsInWorkToDelete.length) {
-      const toolsInMainStorage = await getToolsInWork(mainStorage_ID)
+      const toolsInMainStorage = await getToolsInWork(mainStorage_ID);
 
-    // En esta lista vamos metiendo las herramientas
-    const listToolsFormated = []
+      // En esta lista vamos metiendo las herramientas
+      const listToolsFormated = [];
 
-    /*Sumamos la cantidad de las herramientas que coinciden y las vamos guardando en el array
+      /*Sumamos la cantidad de las herramientas que coinciden y las vamos guardando en el array
     No obstante las herramientas que no estan en el galpon se almacenan igual con la cantidad que había en la obra. */
-    toolsInWorkToDelete.forEach(tool => {
-      const toolSaved = toolsInMainStorage.find(toolStorage => tool.herramienta_id == toolStorage.herramienta_id)
-      
-      if(toolSaved) {
-        return listToolsFormated.push({herramienta_id: tool.herramienta_id, cantidad: Number(tool.cantidad) + Number(toolSaved.cantidad), obra_actual_id: mainStorage_ID});
-      }
-        listToolsFormated.push({herramienta_id: tool.herramienta_id, cantidad: Number(tool.cantidad), obra_actual_id: mainStorage_ID})
+      toolsInWorkToDelete.forEach((tool) => {
+        const toolSaved = toolsInMainStorage.find(
+          (toolStorage) => tool.herramienta_id == toolStorage.herramienta_id
+        );
+
+        if (toolSaved) {
+          return listToolsFormated.push({
+            herramienta_id: tool.herramienta_id,
+            cantidad: Number(tool.cantidad) + Number(toolSaved.cantidad),
+            obra_actual_id: mainStorage_ID,
+          });
+        }
+        listToolsFormated.push({
+          herramienta_id: tool.herramienta_id,
+          cantidad: Number(tool.cantidad),
+          obra_actual_id: mainStorage_ID,
+        });
       });
 
       // Ahora hacemos un upsert a supabase para reemplazar e insertar los datos (las herramientas)
-      const {error:errUpsert, data} = await supabase
-      .from("herramientas_en_obras")
-      .upsert(listToolsFormated, {onConflict: ["herramienta_id", "obra_actual_id"]})
-      .select()
+      const { error: errUpsert, data } = await supabase
+        .from("herramientas_en_obras")
+        .upsert(listToolsFormated, {
+          onConflict: ["herramienta_id", "obra_actual_id"],
+        })
+        .select();
 
-      if (errUpsert) throw errUpsert
-
+      if (errUpsert) throw errUpsert;
     }
-    const {error: errDeletRegisters} = await deleteRegistersForWork(id)
-    
-    const {error: errDeleteWork} = await deleteWork(id)
+    const { error: errDeletRegisters } = await deleteRegistersForWork(id);
 
-    if(errDeletRegisters || errDeleteWork) throw {errDeletRegisters,errDeleteWork,errUpsert};
+    const { error: errDeleteWork } = await deleteWork(id);
 
-      return res.status(200).json({msg: "Obra eliminada"})
+    if (errDeletRegisters || errDeleteWork)
+      throw { errDeletRegisters, errDeleteWork, errUpsert };
 
+    return res.status(200).json({ msg: "Obra eliminada" });
   } catch (error) {
     console.log(error);
-    return res.status(500).json(error)
+    return res.status(500).json(error);
   }
-})
+});
 
-router.put('/update-work', async(req,res)=>{
-  const {nombre, direccion, id} = req.body;
-  
-  if(!id) return res.status(400).json({error: 'Falta el id para identificar la obra'});
+router.put("/update-work", async (req, res) => {
+  const { nombre, direccion, id } = req.body;
 
-  if(nombre || direccion){
-      try {
-        if(nombre && direccion){
-          const {data, error} = await supabase
-            .from('obras')
-            .update({
-              nombre,
-              direccion
-            })
-            .eq('id', id)
-            .select()
-            .single()
-          
-            if(error) throw error
-    
-            return res.status(200).json(data)
-        }else if(nombre){
-          const {data, error} = await supabase
-            .from('obras')
-            .update({
-              nombre
-            })
-            .eq('id', id)
-            .select()
-            .single()
-          
-            if(error) throw error
-    
-            return res.status(200).json(data)
-        }else{
-          const {data, error} = await supabase
-            .from('obras')
-            .update({
-              direccion
-            })
-            .eq('id', id)
-            .select()
-            .single()
-          
-            if(error) throw error
-    
-            return res.status(200).json(data)
-        }
-      } catch (error) {
-        console.log(error);
-        return res.status(500).json(error)
-        
+  if (!id)
+    return res
+      .status(400)
+      .json({ error: "Falta el id para identificar la obra" });
+
+  if (nombre || direccion) {
+    try {
+      if (nombre && direccion) {
+        const { data, error } = await supabase
+          .from("obras")
+          .update({
+            nombre,
+            direccion,
+          })
+          .eq("id", id)
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        return res.status(200).json(data);
+      } else if (nombre) {
+        const { data, error } = await supabase
+          .from("obras")
+          .update({
+            nombre,
+          })
+          .eq("id", id)
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        return res.status(200).json(data);
+      } else {
+        const { data, error } = await supabase
+          .from("obras")
+          .update({
+            direccion,
+          })
+          .eq("id", id)
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        return res.status(200).json(data);
       }
+    } catch (error) {
+      console.log(error);
+      return res.status(500).json(error);
     }
-    return res.status(400).json({error: 'No se especifico la propiedad para actualizar'})
-    
-  })
+  }
+  return res
+    .status(400)
+    .json({ error: "No se especifico la propiedad para actualizar" });
+});
 
 module.exports = router;
