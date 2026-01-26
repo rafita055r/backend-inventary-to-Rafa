@@ -18,12 +18,14 @@ const { getWorks } = require("../services/getWorks.js");
 // -----------RUTAS DE HERRAMIENTAS--------------------------
 // Ruta para devolver las herramientas
 router.get("/herramientas", async (req, res) => {
+  const {name} = req.query
+  
   try {
-    const { data: tools, error } = await getTools();
-
-    if (error) throw error;
-
-    res.json(tools);
+      const { data: tools, error } = await getTools(name);
+      
+      if (error) throw error;
+      
+      return res.json(tools);      
   } catch (error) {
     console.log(error);
     return res.status(500).json(error);

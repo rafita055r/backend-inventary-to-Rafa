@@ -1,6 +1,6 @@
 const supabase = require("../supabaseClient")
 
-async function getTools(){
+async function getTools(nameTool){
     try {
         const {error, data} = await supabase
             .from("herramientas")
@@ -17,7 +17,7 @@ async function getTools(){
             `);
 
         if (error) throw error
-        
+
         const toolsListFormated = data.map(tool=>{
             return {
                 id: tool.id,
@@ -36,10 +36,16 @@ async function getTools(){
 
             }
         })
+
+        if(!nameTool || nameTool.trim() === ""){
+            return {data: toolsListFormated, error: null};
+        }else{
+            const searchedResult = toolsListFormated.filter((tool) => String(tool.nombre).trim().toLowerCase().includes(String(nameTool).trim().toLowerCase()))
+
+            return {data: searchedResult, error: null}
+        }
         
-        if(error) throw error;
         
-        return {data: toolsListFormated, error: null};
     } catch (error) {
         console.log(error);
         return {data: null, error}
